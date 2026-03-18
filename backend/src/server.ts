@@ -6,12 +6,12 @@ import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
-import { ensureTestUser, login, requireAuth } from './auth';
-import { loadDb, saveDb } from './db';
-import { fetchJobs } from './jobs';
-import { matchJobsToResume } from './matching';
-import { runAssistant } from './assistant';
-import { log } from './logger';
+import { ensureTestUser, login, requireAuth } from './auth.js';
+import { loadDb, saveDb } from './db.js';
+import { fetchJobs } from './jobs.js';
+import { matchJobsToResume } from './matching.js';
+import { runAssistant } from './assistant.js';
+import { log } from './logger.js';
 
 dotenv.config({ path: path.resolve(process.cwd(), '..', '.env') });
 

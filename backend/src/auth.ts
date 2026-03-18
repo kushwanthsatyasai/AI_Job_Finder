@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { loadDb, saveDb, type StoredUser } from './db';
+import { loadDb, saveDb, type StoredUser } from './db.js';
 
 const TEST_EMAIL = 'test@gmail.com';
 const TEST_PASSWORD = 'test@123';

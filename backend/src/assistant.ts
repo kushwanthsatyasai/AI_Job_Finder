@@ -4,7 +4,7 @@ import { ChatOpenAI } from '@langchain/openai';
 import { tool } from '@langchain/core/tools';
 import { AIMessage, HumanMessage, SystemMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import { StateGraph, StateSchema, MessagesValue, ReducedValue, START, END } from '@langchain/langgraph';
-import { log } from './logger';
+import { log } from './logger.js';
 
 export type FiltersPatch = {
   roleTitle?: string;

@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { ChatGroq } from '@langchain/groq';
 import { ChatOpenAI, OpenAIEmbeddings } from '@langchain/openai';
-import type { NormalizedJob } from './jobs';
-import { log } from './logger';
+import type { NormalizedJob } from './jobs.js';
+import { log } from './logger.js';
 
 export type ResumeProfile = {
   skills: string[];

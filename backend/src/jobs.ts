@@ -1,5 +1,5 @@
 import { nanoid } from 'nanoid';
-import { log } from './logger';
+import { log } from './logger.js';
 
 export type NormalizedJob = {
   id: string;
