@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiFetch } from '../lib/api';
 import type { Filters } from './FiltersPanel';
 
@@ -28,6 +28,27 @@ export function AssistantChat({
   const listRef = useRef<HTMLDivElement | null>(null);
 
   const history = useMemo(() => messages.slice(-10), [messages]);
+
+  useEffect(() => {
+    if (!open) return;
+    void (async () => {
+      try {
+        const res = await apiFetch<{ history: { role: 'user' | 'assistant'; content: string }[] }>('/ai/assistant/history');
+        if (res.history?.length) {
+          setMessages((prev) => {
+            // Preserve local messages if user already chatted in this session.
+            if (prev.length > 1) return prev;
+            return [
+              { role: 'assistant', content: 'Ask me to filter jobs (e.g., “only remote React jobs posted this week”).' },
+              ...res.history,
+            ];
+          });
+        }
+      } catch {
+        // ignore
+      }
+    })();
+  }, [open]);
 
   function applyActions(actions: Action[]) {
     for (const a of actions) {
@@ -65,7 +86,12 @@ export function AssistantChat({
   return (
     <div className="chatWrap">
       {open ? (
-        <div className="chatPanel">
+        <div
+          className="chatOverlay"
+          onClick={() => setOpen(false)}
+          role="presentation"
+        >
+          <div className="chatPanel chatPanelOpen" onClick={(e) => e.stopPropagation()}>
           <div className="chatHeader">
             <div className="h2">Assistant</div>
             <button className="btn btnSecondary" onClick={() => setOpen(false)}>
@@ -92,6 +118,7 @@ export function AssistantChat({
             <button className="btn" onClick={() => void send()} disabled={loading}>
               {loading ? '…' : 'Send'}
             </button>
+          </div>
           </div>
         </div>
       ) : (

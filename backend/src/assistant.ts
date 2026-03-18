@@ -65,6 +65,7 @@ const tools = Object.values(toolsByName);
 const AssistantState = new StateSchema({
   messages: MessagesValue,
   actions: new ReducedValue(z.array(z.any()).default([]), { reducer: (x, y) => x.concat(y) }),
+  intent: new ReducedValue(z.string().default(''), { reducer: (_x, y) => String(y || '') }),
 });
 
 const systemPrompt = `You are the AI assistant inside a job tracking web app.\n\nYou MUST use tools to update UI filters. Do not merely describe filter changes.\n\nCapabilities:\n- setFilters({patch}) to update the Job Feed filters (role/title text, skills array, datePosted, jobType, workMode, location, matchScoreBand).\n- clearFilters() to reset filters.\n- navigate({to}) to switch pages.\n\nUser requests examples:\n- \"Show only remote jobs\" -> setFilters({workMode:\"Remote\"})\n- \"Filter by last 24 hours\" -> setFilters({datePosted:\"24h\"})\n- \"Only full-time roles in Bangalore\" -> setFilters({jobType:\"Full-time\", location:\"Bangalore\"})\n- \"High match scores only\" -> setFilters({matchScoreBand:\"High\"})\n- \"Clear all filters\" -> clearFilters()\n\nIf the user asks product questions, respond normally without tools.\nRespect existing filters: patch changes only what user asked; do not wipe other filters unless asked.\n`;
@@ -137,6 +138,81 @@ function makeModel(provider: 'groq' | 'sarvam') {
 
   return llm.bindTools(tools);
 }
+
+function makeChatOnlyModel(provider: 'groq' | 'sarvam') {
+  return provider === 'groq'
+    ? new ChatGroq({ apiKey: process.env.GROQ_API_KEY!, model: process.env.GROQ_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct', temperature: 0.2 })
+    : new ChatOpenAI({ apiKey: process.env.SARVAM_API_KEY!, model: process.env.SARVAM_MODEL || 'sarvam-30b', temperature: 0.2, configuration: { baseURL: 'https://api.sarvam.ai/v1' } });
+}
+
+const router = async (state: any) => {
+  const last = state.messages.at(-1);
+  const text = last && 'content' in last ? String((last as any).content ?? '') : '';
+  const t = text.toLowerCase();
+
+  const looksLikeFilter =
+    /(filter|show|only|remote|wfh|hybrid|on[- ]?site|full[- ]?time|part[- ]?time|contract|intern|last 24|week|month|clear)/i.test(text)
+    || /\breact\b|\bnode\b|\bpython\b|\bjava\b|\bflutter\b|\baws\b/i.test(text);
+  const looksLikeNavigation = /(applications|dashboard|go to|open)/i.test(text);
+  const looksLikeHelp = /(how|what|why|explain|help|can you)/i.test(text);
+
+  const intent =
+    looksLikeNavigation ? 'navigate'
+    : looksLikeFilter ? 'filters'
+    : looksLikeHelp ? 'help'
+    : 'chat';
+
+  return { intent };
+};
+
+const actionExtract = async (state: any) => {
+  const last = state.messages.at(-1);
+  const text = last && 'content' in last ? String((last as any).content ?? '') : '';
+  const fb = fallbackActions(text);
+  return { actions: fb.actions, messages: [] };
+};
+
+const answerOnly = async (state: any) => {
+  const providers: ('groq' | 'sarvam')[] = [];
+  if (process.env.GROQ_API_KEY) providers.push('groq');
+  if (process.env.SARVAM_API_KEY) providers.push('sarvam');
+  const last = state.messages.at(-1);
+  const text = last && 'content' in last ? String((last as any).content ?? '') : '';
+
+  if (!providers.length) {
+    return { messages: [new AIMessage('I can help with filters, matching, applications, or using the app. What would you like to do?')] };
+  }
+
+  for (const provider of providers) {
+    try {
+      const started = Date.now();
+      const model = makeChatOnlyModel(provider);
+      const response = await model.invoke([
+        new SystemMessage(systemPrompt + '\nWhen NOT changing filters, answer concisely and ask one clarifying question if needed.'),
+        ...state.messages,
+      ]);
+      log.debug({ mode: provider, ms: Date.now() - started }, 'assistant.answer');
+      return { messages: [response] };
+    } catch (err: any) {
+      log.warn({ mode: provider, error: err?.message?.slice(0, 200) }, 'assistant.answer: provider failed, trying next');
+    }
+  }
+
+  return { messages: [new AIMessage('I had trouble generating an answer. Try rephrasing your question.')] };
+};
+
+function routeNext(state: any) {
+  const intent = String(state.intent || '');
+  if (intent === 'filters' || intent === 'navigate') return 'llmCall';
+  // For general help/chat, run answer + action suggestion in parallel.
+  return 'fanout';
+}
+
+const join = (state: any) => {
+  // Keep the latest AIMessage (answerOnly) as visible response.
+  const lastAi = [...(state.messages || [])].reverse().find((m: any) => m && AIMessage.isInstance(m));
+  return lastAi ? { messages: [lastAi] } : { messages: [new AIMessage('Done.')] };
+};
 
 const llmCall = async (state: any) => {
   const last = state.messages.at(-1);
@@ -222,13 +298,25 @@ const shouldContinue = (state: any) => {
 };
 
 const graph = new StateGraph(AssistantState)
+  .addNode('router', router)
+  .addNode('fanout', async (_state: any) => ({}))
   .addNode('llmCall', llmCall)
   .addNode('toolNode', toolNode)
   .addNode('summarize', summarize)
-  .addEdge(START, 'llmCall')
+  .addNode('actionExtract', actionExtract)
+  .addNode('answerOnly', answerOnly)
+  .addNode('join', join)
+  .addEdge(START, 'router')
+  .addConditionalEdges('router', routeNext, ['llmCall', 'fanout'])
+  // fanout pseudo-node: router can branch to both nodes in parallel
+  .addEdge('fanout', 'answerOnly')
+  .addEdge('fanout', 'actionExtract')
+  .addEdge('answerOnly', 'join')
+  .addEdge('actionExtract', 'join')
   .addConditionalEdges('llmCall', shouldContinue, ['toolNode', END])
   .addEdge('toolNode', 'summarize')
   .addEdge('summarize', END)
+  .addEdge('join', END)
   .compile();
 
 export async function runAssistant(args: { message: string; history?: { role: 'user' | 'assistant'; content: string }[] }) {

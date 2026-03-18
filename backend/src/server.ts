@@ -318,13 +318,39 @@ async function main() {
     if (!parsed.success) return reply.code(400).send({ error: 'Invalid body' });
 
     try {
-      const res = await runAssistant({ message: parsed.data.message, history: parsed.data.history });
+      const db = await loadDb();
+      const user = db.users[auth.userId];
+      if (!user) return reply.code(404).send({ error: 'User not found' });
+
+      const stored = (user.assistantHistory || []).map((h) => ({ role: h.role, content: h.content }));
+      const merged = [...stored, ...(parsed.data.history || [])].slice(-20);
+
+      const res = await runAssistant({ message: parsed.data.message, history: merged });
+
+      // Persist assistant memory (trim to last 30 turns).
+      const now = new Date().toISOString();
+      user.assistantHistory = [
+        ...(user.assistantHistory || []),
+        { role: 'user' as const, content: parsed.data.message, at: now },
+        { role: 'assistant' as const, content: res.assistantText, at: now },
+      ].slice(-60);
+      await saveDb(db);
       server.log.info({ reqId: req.id, userId: auth.userId, actions: res.actions?.length || 0 }, 'assistant.reply');
       return reply.send(res);
     } catch (e: any) {
       server.log.error(e);
       return reply.code(500).send({ error: 'Assistant failed' });
     }
+  });
+
+  server.get('/ai/assistant/history', async (req, reply) => {
+    const auth = requireAuth(req, reply);
+    if (!auth) return;
+    const db = await loadDb();
+    const user = db.users[auth.userId];
+    if (!user) return reply.code(404).send({ error: 'User not found' });
+    const history = (user.assistantHistory || []).slice(-20);
+    return reply.send({ history });
   });
 
   const port = Number(process.env.PORT || 4000);

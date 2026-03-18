@@ -28,6 +28,7 @@ export type StoredUser = {
   resumeText: string | null;
   resumeUpdatedAt: string | null;
   applications: StoredApplication[];
+  assistantHistory?: { role: 'user' | 'assistant'; content: string; at: string }[];
 };
 
 export type DbShape = {

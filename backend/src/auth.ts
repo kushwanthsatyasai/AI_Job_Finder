@@ -20,6 +20,7 @@ export async function ensureTestUser(): Promise<StoredUser> {
     resumeText: null,
     resumeUpdatedAt: null,
     applications: [],
+    assistantHistory: [],
   };
 
   db.users[id] = user;

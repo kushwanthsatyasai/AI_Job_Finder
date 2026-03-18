@@ -25,6 +25,25 @@ export function JobFeedPage() {
   const [jobsLoading, setJobsLoading] = useState(false);
   const [matchLoading, setMatchLoading] = useState(false);
   const [matchError, setMatchError] = useState('');
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [savedIds, setSavedIds] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem('jfai_saved_jobs');
+      const arr = raw ? (JSON.parse(raw) as string[]) : [];
+      return new Set(arr);
+    } catch {
+      return new Set();
+    }
+  });
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem('jfai_hidden_jobs');
+      const arr = raw ? (JSON.parse(raw) as string[]) : [];
+      return new Set(arr);
+    } catch {
+      return new Set();
+    }
+  });
 
   const DEFAULT_FILTERS: Filters = {
     roleTitle: '',
@@ -118,6 +137,7 @@ export function JobFeedPage() {
 
     return jobs
       .filter((j) => {
+        if (hiddenIds.has(j.id)) return false;
         const blob = norm(`${j.title}\n${j.companyName}\n${j.location}\n${j.description}`);
         if (roleWords.length && !roleWords.every((w) => blob.includes(w))) return false;
         if (loc && !norm(j.location).includes(loc)) return false;
@@ -134,7 +154,42 @@ export function JobFeedPage() {
         return true;
       })
       .sort((a, b) => (b.match?.score ?? 0) - (a.match?.score ?? 0));
-  }, [jobs, filters]);
+  }, [jobs, filters, hiddenIds]);
+
+  const savedJobs = useMemo(() => {
+    const list = jobs.filter((j) => savedIds.has(j.id) && !hiddenIds.has(j.id));
+    return list.sort((a, b) => (b.match?.score ?? 0) - (a.match?.score ?? 0)).slice(0, 6);
+  }, [jobs, savedIds, hiddenIds]);
+
+  function persistSet(key: string, set: Set<string>) {
+    localStorage.setItem(key, JSON.stringify(Array.from(set)));
+  }
+
+  function toggleSave(jobId: string) {
+    setSavedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(jobId)) next.delete(jobId);
+      else next.add(jobId);
+      persistSet('jfai_saved_jobs', next);
+      return next;
+    });
+  }
+
+  function hideJob(jobId: string) {
+    setHiddenIds((prev) => {
+      const next = new Set(prev);
+      next.add(jobId);
+      persistSet('jfai_hidden_jobs', next);
+      return next;
+    });
+    setSavedIds((prev) => {
+      if (!prev.has(jobId)) return prev;
+      const next = new Set(prev);
+      next.delete(jobId);
+      persistSet('jfai_saved_jobs', next);
+      return next;
+    });
+  }
 
   return (
     <div className="page">
@@ -166,11 +221,13 @@ export function JobFeedPage() {
 
       {me?.hasResume ? (
         <div className="jobLayout">
-          <FiltersPanel
-            filters={filters}
-            onApply={(next) => setFilters(next)}
-            onClear={clearFilters}
-          />
+          <div className="filtersDesktop">
+            <FiltersPanel
+              filters={filters}
+              onApply={(next) => setFilters(next)}
+              onClear={clearFilters}
+            />
+          </div>
 
           <div className="jobList">
             {matchLoading ? (
@@ -192,14 +249,46 @@ export function JobFeedPage() {
               }}
             />
 
+            {savedJobs.length ? (
+              <div className="card" style={{ marginBottom: 12 }}>
+                <div className="rowBetween" style={{ marginBottom: 10 }}>
+                  <div className="h2">Saved</div>
+                  <div className="muted" style={{ marginTop: 0 }}>
+                    {savedJobs.length} pinned jobs
+                  </div>
+                </div>
+                <div className="bestGrid">
+                  {savedJobs.map((j) => (
+                    <JobCard
+                      key={j.id}
+                      job={j}
+                      compact
+                      isSaved
+                      onToggleSave={() => toggleSave(j.id)}
+                      onHide={() => hideJob(j.id)}
+                      onApply={(jj) => {
+                        markPendingApply(jj);
+                        window.open(jj.applyUrl, '_blank', 'noopener,noreferrer');
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             <div className="rowBetween" style={{ marginBottom: 10 }}>
               <div className="muted">
                 Showing <b>{filtered.length}</b> of {jobs.length}
                 {hasScores && !matchLoading ? ' \u00b7 sorted by match score' : ''}
               </div>
-              <button className="btn btnSecondary" onClick={loadJobs} disabled={jobsLoading || matchLoading}>
-                {jobsLoading ? 'Refreshing\u2026' : matchLoading ? 'Scoring\u2026' : 'Refresh jobs'}
-              </button>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button className="btn btnSecondary filtersToggle" onClick={() => setFiltersOpen(true)} type="button">
+                  Filters
+                </button>
+                <button className="btn btnSecondary" onClick={loadJobs} disabled={jobsLoading || matchLoading}>
+                  {jobsLoading ? 'Refreshing\u2026' : matchLoading ? 'Scoring\u2026' : 'Refresh jobs'}
+                </button>
+              </div>
             </div>
 
             {jobsLoading && !jobs.length ? <div className="skeleton">Loading jobs\u2026</div> : null}
@@ -213,12 +302,33 @@ export function JobFeedPage() {
               <JobCard
                 key={job.id}
                 job={job}
+                isSaved={savedIds.has(job.id)}
+                onToggleSave={() => toggleSave(job.id)}
+                onHide={() => hideJob(job.id)}
                 onApply={(j) => {
                   markPendingApply(j);
                   window.open(j.applyUrl, '_blank', 'noopener,noreferrer');
                 }}
               />
             ))}
+          </div>
+        </div>
+      ) : null}
+
+      {filtersOpen ? (
+        <div className="filtersOverlay" onClick={() => setFiltersOpen(false)} role="presentation">
+          <div className="filtersDrawer" onClick={(e) => e.stopPropagation()}>
+            <FiltersPanel
+              filters={filters}
+              onApply={(next) => {
+                setFilters(next);
+                setFiltersOpen(false);
+              }}
+              onClear={() => {
+                clearFilters();
+                setFiltersOpen(false);
+              }}
+            />
           </div>
         </div>
       ) : null}

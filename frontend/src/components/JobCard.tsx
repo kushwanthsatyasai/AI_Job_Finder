@@ -16,7 +16,21 @@ function scoreTier(score?: number): 'green' | 'yellow' | 'gray' {
 
 const ACCENT_COLORS = { green: '#16a34a', yellow: '#f59e0b', gray: '#9ca3af' };
 
-export function JobCard({ job, onApply, compact }: { job: Job; onApply: (job: Job) => void; compact?: boolean }) {
+export function JobCard({
+  job,
+  onApply,
+  compact,
+  isSaved,
+  onToggleSave,
+  onHide,
+}: {
+  job: Job;
+  onApply: (job: Job) => void;
+  compact?: boolean;
+  isSaved?: boolean;
+  onToggleSave?: (job: Job) => void;
+  onHide?: (job: Job) => void;
+}) {
   const b = badge(job.match?.score);
   const tier = scoreTier(job.match?.score);
   const accent = ACCENT_COLORS[tier];
@@ -61,7 +75,17 @@ export function JobCard({ job, onApply, compact }: { job: Job; onApply: (job: Jo
         </div>
       ) : null}
 
-      <div className="rowEnd">
+      <div className="jobActions">
+        {typeof isSaved === 'boolean' && onToggleSave ? (
+          <button className="btn btnSecondary btnSm" onClick={() => onToggleSave(job)} type="button">
+            {isSaved ? 'Saved' : 'Save'}
+          </button>
+        ) : null}
+        {onHide ? (
+          <button className="btn btnSecondary btnSm" onClick={() => onHide(job)} type="button">
+            Hide
+          </button>
+        ) : null}
         <button className="btn" onClick={() => onApply(job)}>
           Apply
         </button>
