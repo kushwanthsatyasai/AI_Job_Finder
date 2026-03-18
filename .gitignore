@@ -1,0 +1,17 @@
+node_modules
+dist
+.env
+.env.*
+!.env.example
+
+frontend/dist
+frontend/node_modules
+
+backend/dist
+backend/node_modules
+
+data/*.json
+data/*.db
+
+.DS_Store
+
