@@ -4,8 +4,8 @@ React + Fastify job tracking platform that fetches real jobs from Adzuna, scores
 
 ## Live demo
 
-- **Frontend (Netlify)**: _add link_
-- **Backend (Render)**: _add link_
+- **Frontend (Netlify)**: https://reliable-pudding-71421f.netlify.app
+- **Backend (Render)**: https://ai-job-finder-kbom.onrender.com
 
 ## Architecture diagram
 
